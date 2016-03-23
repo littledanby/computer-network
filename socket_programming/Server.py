@@ -28,6 +28,8 @@ class Server:
 		 	[activetime] (float): last active time
 		 	[logouttime] (float): last log out time
 		 	{[ip] (string): blocktime (float)} last block time for this IP address!!
+		 	[busy] (boolean): busy state for client
+		 	[visible] (boolean): visible status for client
 		}
 	}
 
@@ -62,6 +64,8 @@ class Server:
 			self.users[name]['logouttime'] = None # used for 'last' command [user's last log out time]
 			self.users[name]['socket'] = None # used for broadcast and send [related socket for this user]
 			self.users[name]['IP'] = {} # used for block IP address of a client [user's IP address and related blocktime]
+			self.users[name]['busy'] = False # when user is busy, it won't receive the message others sent, even he/she is online
+			self.users[name]['visible'] = True # when user is not visible, other users use who and last won't see him. But he still could receive send and broadcast messages
 
 
 		
@@ -93,8 +97,8 @@ class Server:
 		self.s.listen(10) # 10: number of max waiting connnections when busy
 		# print 'Socket now listening'
 
-	# the main part for Server client
-	# wait for 2 kind of messages 
+	# the main part for Server class
+	# wait for 2 kinds of messages 
 	# one is login part. connection request from client
 	# another is commands from different online clients
 	def server(self, port):
@@ -196,6 +200,8 @@ class Server:
 					self.users[client_name]['online'] = True
 					self.users[client_name]['activetime'] = time.time()
 					self.users[client_name]['socket'] = client_socket
+					self.users[client_name]['busy'] = False
+					self.users[client_name]['visible'] = True
 					self.socket_list[client_socket] = client_name
 					#break
 					return 1
@@ -226,10 +232,32 @@ class Server:
 		client_message = self.receive_message(client_socket)
 		if client_message:
 			self.users[client_name]['activetime'] = time.time()
-			if client_message == 'who':
+
+			if client_message == 'busy':
+				self.users[client_name]['busy'] = True # set busy as true, then the client won't receive message others send
+				self.send_message(client_socket, 'Busy status set.')
+
+			elif client_message == 'idle':
+				self.users[client_name]['busy'] = False
+				self.send_message(client_socket, 'Idle status set.')
+
+			elif client_message == 'hide':
+				self.users[client_name]['visible'] = False # set visible as false, then the others won't see you online
+				self.send_message(client_socket, 'Invisible status set.')
+
+			elif client_message == 'appear':
+				self.users[client_name]['visible'] = True
+				self.send_message(client_name, 'Visible status set.')
+
+			elif client_message == 'status': # show busy and visible status of user
+				self.print_status(client_socket)
+
+			elif client_message == 'who':
 				self.who(client_socket)
+
 			elif client_message == 'logout':
 				self.logout(client_socket)
+
 			elif 'last' in client_message and client_message[:4] == 'last':
 				c_msg = client_message.split()
 				if len(c_msg) != 2 or (not c_msg[1].isdigit()):
@@ -237,12 +265,14 @@ class Server:
 				else:
 					num = int(c_msg[1])
 					self.last(client_socket, num)
+
 			elif 'broadcast' in client_message and client_message[:9] == 'broadcast':
 				if len(client_message) <= 10 or client_message[9] != ' ':
 					self.send_message(client_socket, 'Invalid Command')
 				else:
 					b_msg = client_message[10:]
 					self.broadcast(client_socket, b_msg)
+					
 			elif 'send' in client_message and client_message[:5] == 'send ':
 				if client_message[5] == '(':
 					left = client_message.find('(')
@@ -268,6 +298,28 @@ class Server:
 				self.send_message(client_socket, 'Invalid Command')
 
 
+	# show busy and visible status for client
+	def print_status(self, socket):
+		name = self.socket_list[socket]
+		if self.users[name]['busy']:
+			busy_status = 'YES'
+		else:
+			busy_status = 'NO'
+		if self.users[name]['visible']:
+			visible_status = 'YES'
+		else:
+			visible_status = 'NO'
+		status = name+'::   Busy: '+busy_status+'; Visible: '+visible_status
+		self.send_message(socket, status)
+
+
+	# auto_response feature for busy people
+	def auto_response(self, busy_socket, send_socket):
+		busy_name = self.socket_list[busy_socket]
+		busy_message = busy_name+': So sorry. I am not available now. Please contact me later.'
+		self.send_message(send_socket, busy_message)
+
+
 	# define automatically logout feature
 	def auto_logout(self, socket):
 		name = self.socket_list[socket]
@@ -290,14 +342,24 @@ class Server:
 				self.send_message(socket, back_msg)
 			else:
 				if self.users[user]['online']:
-					self.send_message(self.users[user]['socket'], name+': '+message)
+					if self.users[user]['busy']: # if user is busy, the sender will receive an auto-response
+						busy_s = self.users[user]['socket']
+						self.auto_response(busy_s, socket)
+					else:
+						self.send_message(self.users[user]['socket'], name+': '+message)
+				
+
+
 
 	# broadcast to any other online users
 	def broadcast(self, socket, message):
 		name = self.socket_list[socket]
 		for user in self.users:
 			if self.users[user]['online'] and user != name:
-				self.send_message(self.users[user]['socket'], name+': '+message)
+				if self.users[user]['busy']:
+					self.auto_response(self.users[user]['socket'], socket)
+				else:
+					self.send_message(self.users[user]['socket'], name+': '+message)
 		print name, ': broadcast DONE.'
 
 	# seek users who are onlin during the pointed out timeslot
@@ -307,9 +369,9 @@ class Server:
 		curr_time = time.time()
 		last_time = curr_time - number * 60
 		for user in self.users:
-			if self.users[user]['online']:
+			if self.users[user]['online'] and self.users[user]['visible']:
 				name_list += user + ' '
-			elif self.users[user]['logouttime']:
+			elif self.users[user]['logouttime'] and serl.users[user]['visible']:
 				if self.users[user]['logouttime'] > last_time:
 					name_list += user + ' '
 		self.send_message(socket, name_list)
@@ -320,7 +382,7 @@ class Server:
 		name = self.socket_list[socket]
 		name_list = ''
 		for user in self.users:
-			if self.users[user]['online']:
+			if self.users[user]['online'] and self.users[user]['visible']:
 				name_list += user + ' '
 		self.send_message(socket, name_list)
 		print name, ": who result:", name_list
