@@ -4,6 +4,7 @@ import socket
 import sys
 import time
 import select
+#import thread
 # from thread import *
 
 """
@@ -130,12 +131,9 @@ class Server:
 					if sock == self.s:  # a new connection received
 						client_socket, client_addr = self.s.accept()
 						print 'Connection request from', client_addr
-						# call function login to authenticate username and password
-						if self.login(client_socket, client_addr):
-							print self.socket_list[client_socket], ': Logged In.'
-						else:
-							print 'Failed Logging In.'
-
+						# use a new thread to call function login to authenticate username and password
+						self.login(client_socket, client_addr)
+						
 					else:  # command from client
 						self.command_processing(sock)
 							
@@ -204,6 +202,7 @@ class Server:
 					self.users[client_name]['visible'] = True
 					self.socket_list[client_socket] = client_name
 					#break
+					print client_name, ': Logged In.'
 					return 1
 				# invalid password, try again or close socket
 				if self.users[client_name]['password'] != client_pw:
@@ -220,7 +219,7 @@ class Server:
 						check_msg5 = 'Invalid password. Try again'
 						self.send_message(client_socket, check_msg5)
 					#print check_msg5
-
+		print 'Failed Logging In.'
 		return 0
 
 
@@ -247,7 +246,7 @@ class Server:
 
 			elif client_message == 'appear':
 				self.users[client_name]['visible'] = True
-				self.send_message(client_name, 'Visible status set.')
+				self.send_message(client_socket, 'Visible status set.')
 
 			elif client_message == 'status': # show busy and visible status of user
 				self.print_status(client_socket)
@@ -371,7 +370,7 @@ class Server:
 		for user in self.users:
 			if self.users[user]['online'] and self.users[user]['visible']:
 				name_list += user + ' '
-			elif self.users[user]['logouttime'] and serl.users[user]['visible']:
+			elif self.users[user]['logouttime'] and self.users[user]['visible']:
 				if self.users[user]['logouttime'] > last_time:
 					name_list += user + ' '
 		self.send_message(socket, name_list)

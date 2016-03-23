@@ -79,6 +79,7 @@ class Client:
 
 		except KeyboardInterrupt:
 			print 'KeyboardInterrupt (Ctrl+C). Stop Client.'
+			self.send_message('logout')
 			self.s.close
 			sys.exit()
 
