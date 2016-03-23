@@ -2,6 +2,7 @@ import hashlib
 import os
 import socket
 import sys
+import select
 
 
 class Client:
@@ -13,16 +14,15 @@ class Client:
 		self.s = None
 
 	# create socket and connect to server
-	def create_socket(self, host, port):
-		# 
+	def create_socket(self, host, port): 
 		try:
 			# create an AF_INET, STREAM socket (TCP)
 			self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
 		except socket.error, msg:
-			print 'Failed to create socket. Error code:', str(msg[0]), ' ; Error message:', msg[1]
+			print 'Failed to create socket. Exiting...'
 			sys.exit();
 
-		print 'Socket Created'
+		#print 'Socket Created'
 
 		try:
 			remote_ip = socket.gethostbyname(host) # get server ip address (IPv4)
@@ -31,61 +31,98 @@ class Client:
 			sys.exit() 
 
 		# connect to server
-		self.s.connect((remote_ip, port))
-		print 'Socket connected to', host, 'on IP :', remote_ip
-
-	# send data to server
-	def send_data(self, message):
 		try:
-			self.s.sendall(message)
-		except socket.error:
-			print 'Send failed. Exiting...'
+			self.s.connect((remote_ip, port))
+			print 'Socket connected to', host, 'on IP :', remote_ip
+		except socket.error, e:
+			print 'Failed connecting to server. Exiting...'
 			sys.exit()
-		print 'haha sent!'
 
-	
 
-	# close socket
-	def close_socket(self):
+	def client(self, host, port):
+		try:
+			self.create_socket(host, port)
+			if self.login() == 0:
+				self.s.close()
+			else:
+				while 1:
+					try:
+						# wait for message from stdin(0) and socket(self.s)
+						read_list, write_list, error_list = select.select([0, self.s], [], [])
+					except select.error, e:
+						print 'Select Error. Exiting...'
+						break
+					except socket.error, e:
+						print 'Socket Error. Exiting...'
+						break
+
+					for sock in read_list:
+						if sock == 0: # message from stdin
+							data = sys.stdin.readline()[:-1]
+							if data:
+								self.send_message(data)
+						if sock == self.s:
+							data = self.receive_message()
+							if data:
+								print 'received the message from server'
+
+		except KeyboardInterrupt:
+			print 'KeyboardInterrupt (Ctrl+C). Stop Client.'
+			self.s.close
+			sys.exit()
+
+		
 		self.s.close()
 
-	def talk_with_server(self, host, port):
-		self.create_socket(host, port)
-		self.authentication()
-		
-		self.close_socket()
 
-
-	def authentication(self):
+	def login(self):
+		print 'Login Please'
 		while 1:
 			name = raw_input('Username: ')
-			self.send_data(name)
-			valid_name = self.s.recv(4096)
-
 			password = raw_input('Password: ')
-			send_pw = hashlib.sha1(password).hexdigest()
-			self.send_data(send_pw)
-
-			valid_pw = self.s.recv(4096)
-			if not valid_name:
-				print 'User dose not exist. Please Input again.'
+			encode_pw = hashlib.sha1(password).hexdigest() # use SHA1 function for security
+			if ' ' in name:
+				print 'Name cannot contain space. Please input again.'
 				continue
-			if not valid_pw:
-				print 'Invalid login. Please Input again'
-				continue
-			if valid_name and valid_pw:
-				print 'Login successfully!'
-				break
+			comb = name + ' ' + encode_pw
+			self.send_message(comb)
+			while 1:
+				rcv_message = self.receive_message()
+				if 'Failed' in rcv_message:
+					print rcv_message
+					return 0
+				elif 'Welcome' in rcv_message:
+					print rcv_message
+					return 1
+				else:
+					print rcv_message
+					break
 
-	
 
+	# send data to server
+	def send_message(self, message):
+		try:
+			self.s.sendall(message)
+		except socket.error, e:
+			print 'Error sending data. Exiting...'
+			sys.exit()
+		#print 'haha sent!'
 
+	def receive_message(self):
+		try:
+			buff = self.s.recv(1024)
+		except socket.error, e:
+			print 'Error receiving data. Exiting...'
+			sys.exit()
+		return buff
+
+			
 def main():
 	if len(sys.argv) == 3:
 		host = sys.argv[1]
 		port = int(sys.argv[2])
 		newC = Client()
-		newC.talk_with_server(host, port)
+		newC.client(host, port)
 	else:
 		print 'Usage: python Client.py <server_IP_address> <server_port_number>'
 

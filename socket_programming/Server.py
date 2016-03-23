@@ -2,85 +2,41 @@ import hashlib
 import os
 import socket  
 import sys
-from thread import *
+import time
+import select
+# from thread import *
 
+"""
+a multi-client chat server using Python's select module
+"""
 
 
 class Server:
-	#HOST = gethostname()
-	HOST = socket.getfqdn() # get hostname of maching where it is currently executing
+	#HOST = gethostname()	# HOST = socket.getfqdn() # get hostname of maching where it is currently executing
 
 	# default number of seconds contained in the environment variable
 	BLOCK_TIME = 60
 
 	"""
-	initiation 
-	
 	s (socket object)
-	 users:
+
+	 users (dictionary):
 	  	username (string):
 	 		password (string)
 	 		online (boolean)
-	 		socket (socket object) 
-	 socket_list:
+	 		block (boolean)
+	 		blocktime (float): last block time
+	 		activetime (float): last active time
+
+	 socket_list (list): 
 	 	socket (socket object):
-	 		username (string)
 	"""
 
 	def __init__(self):
-		self.s = None  
+		self.s = None 
 		self.users = {} 
-		# self.socket_list = {}
+		self.socket_list = []
 		
-		
-	# create socket and listen to connections
-	def create_socket(self, port):
-		try:
-			# create an AF_INET, STREAM socket (TCP)
-			self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-		except socket.error, msg:
-			print 'Create Failed. Error code:', str(msg[0]), ' ; Error message:', msg[1]
-			sys.exit()
-
-		try:
-			#self.s.bind((Server.HOST, port))
-			self.s.bind(('', port))
-
-		except socket.error, msg:
-			print 'Bind Failed. Error code:', str(msg[0]), ' ; Error message:', msg[1]
-			sys.exit()
-
-		self.s.listen(10) # 10: number of max waiting connnections when busy
-		# print 'Socket now listening'
-
-
-	# use threads to handle connections
-	def client_thread(self, conn):
-		# send message to connected client
-		# conn.send('Welcome to the Server. Type username and hit ENTER \n')
-
-		while 1:
-			data = conn.recv(1024)
-			reply = "Receive name from client: " + data
-			if not data:
-				break
-
-			conn.sendall(reply)
-			print 'User:', data
-
-		conn.close()
-
-	
-	def talk_with_client(self):
-		while 1:
-			# wait to accept a connection
-			conn, addr = self.s.accept()
-			print 'Connected with', addr[0], ':', str(addr[1])
-
-			start_new_thread(self.client_thread,(conn,))
-		
-		self.s.close()
-
 	
 	def load(self):
 		fileRead = open("user_pass.txt", 'r')
@@ -94,15 +50,174 @@ class Server:
 			self.users[name] = {}
 			self.users[name]['password'] = password
 			self.users[name]['online'] = False
+			self.users[name]['block'] = False
+			self.users[name]['blocktime'] = None
+			self.users[name]['activetime'] = None
 
-	def authentication(self, username, password):
-		if username not in self.users:
-			print 'Username Not Found'
-		else:
-			if self.users[username] != password:
-				print "Wrong password, try again."
-		pw_sha1 = self.sha1(password)
-		return self.users[username] == pw_sha1
+
+		
+	# create socket and listen to connections
+	def create_socket(self, port):
+		try:
+			# create an AF_INET (IPv4), STREAM socket (TCP).
+			self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+		except socket.error, msg:
+			print 'Creating Failed. Error code:', str(msg[0]), ' ; Error message:', msg[1]
+			sys.exit()
+
+		try:
+			# resolve OSError: [Errno 48] Address already in use may occur using socket.SO_REUSEADDR flag
+			self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		except socket.error, msg:
+			print 'Creating Failed. Error code:', str(msg[0]), ' ; Error message:', msg[1]
+			sys.exit()
+
+		try:
+			
+			self.s.bind(('', port))
+		except socket.error, msg:
+			print 'Binding Failed. Error code:', str(msg[0]), ' ; Error message:', msg[1]
+			sys.exit()
+
+		print 'Listening to port', port, '...'
+		self.s.listen(10) # 10: number of max waiting connnections when busy
+		# print 'Socket now listening'
+
+	
+	def server(self):
+		select_list = []
+		select_list[:] = self.socket_list[:]
+		select_list.append(self.s)
+
+		try:
+			
+			while 1:
+				select_list = self.socket_list[:]
+				select_list.append(self.s)
+				try:
+					# use select to get the list sockets which are ready to be read. 
+					# Asynchronous I/O is provided in select module (non-block)
+					read_list, write_list, error_list = select.select(select_list, [], [])
+				except select.error, e:
+					print 'Select Error. Exiting...'
+					break
+				except socket.error, e:
+					print 'Socket Error. Exiting...'
+					break
+
+				for sock in read_list:
+					if sock == self.s:  # a new connection received
+						client_socket, client_addr = self.s.accept()
+						print 'Connection request from', client_addr
+						# call function login to authenticate username and password
+						self.login(client_socket, client_addr) 
+
+					else:  # message from client
+						client_message = self.receive_message(sock)
+						if not client_message:
+							print 'Cannot receive message'
+							sock.close()
+						else:
+							print 'receive command: ', client_message
+							msg = 'received the message from ' + client_message
+							self.send_message(client_socket, msg)
+			
+		except KeyboardInterrupt:
+			print 'KeyboardInterrupt (Ctrl+C). Stop Server.'
+			self.s.close()
+			sys.exit()			
+
+
+			#conn, addr = self.s.accept()
+			#print 'Connected with', addr[0], ':', str(addr[1])
+
+			# start_new_thread(self.client_thread,(conn,))
+		
+		self.s.close()
+
+	def send_message(self, socket, data):
+		try:
+			socket.sendall(data)
+		#except socket.error, e:
+		except Exception, (error, message):
+			print 'Error sending data. Exiting...'
+			sys.exit()
+
+	def receive_message(self, socket):
+		try:
+			buf = socket.recv(1024)
+		#except socket.error, e:
+		except Exception, (error, message):
+			print 'Error receiving data. Exiting...'
+			sys.exit()
+		return buf
+
+
+	def login(self, client_socket, client_addr):
+		try_count = 0
+		flag = 1
+		while try_count < 3:
+			#print self.users
+			client_message = self.receive_message(client_socket).split(' ') 
+			if client_message:
+				client_name = client_message[0]
+				client_pw = client_message[1]
+				print 'Client', client_name, 'try to login. ', try_count
+				# check if the username is in the list
+				if client_name not in self.users.keys():
+					check_msg1 = 'Failed. Username Not Found.' 
+					self.send_message(client_socket, check_msg1)
+					print check_msg1
+					client_socket.close()
+					break
+				# check if the user is online
+				if self.users[client_name]['online']:
+					check_msg2 = 'Failed. Client ' + client_name + ': Already online.'
+					self.send_message(client_socket, check_msg2) 
+					print check_msg2
+					client_socket.close()
+					break
+				#check if the user is blocked
+				if self.users[client_name]['block']:
+					if time.time() - self.users[client_name]['blocktime'] > Server.BLOCK_TIME:
+						self.users[client_name]['block'] = False
+					else:
+						check_msg3 = 'Failed. Client ' + client_name + ': is blocked. Cannot login.'
+						self.send_message(client_socket, check_msg3)
+						print check_msg3  
+						client_socket.close()
+						break
+				# valid password, welcome
+				if self.users[client_name]['password'] == client_pw:
+					flag = 0
+					wel_msg = 'Welcome, ' + client_name
+					self.send_message(client_socket, wel_msg)
+					print wel_msg
+					self.users[client_name]['online'] = True
+					self.users[client_name]['activetime'] = time.time()
+					break
+				# invalid password, try again or close socket
+				if self.users[client_name]['password'] != client_pw:
+					try_count += 1
+
+					if try_count == 3:  # if tried for 3 times and failed, block the user
+						check_msg4 = 'Failed. Client' + client_name + 'tried more than 3 times.'
+						self.users[client_name]['block'] = True
+						self.users[client_name]['blocktime'] = time.time()
+						self.send_message(client_socket, check_msg4)
+						client_socket.close()
+						print check_msg4
+					else:
+						check_msg5 = 'Invalid password. Try again'
+						self.send_message(client_socket, check_msg5)
+					print check_msg5
+
+						
+			
+		
+		#print self.users # check users status
+
+
 
 
 def main():
@@ -113,7 +228,8 @@ def main():
 	newS = Server()
 	newS.load()
 	newS.create_socket(port)
-	newS.talk_with_client() 
+	newS.server() 
+
 	
 if __name__ == '__main__':
 	main()
