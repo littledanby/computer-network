@@ -4,6 +4,9 @@ import socket
 import sys
 import select
 
+"""
+a client using Python's select module to detect message from sys.stdin and socket
+"""
 
 class Client:
 
@@ -49,22 +52,25 @@ class Client:
 					try:
 						# wait for message from stdin(0) and socket(self.s)
 						read_list, write_list, error_list = select.select([0, self.s], [], [])
-					except select.error, e:
-						print 'Select Error. Exiting...'
+					except Exception, (error, message):
+						self.s.close()
+						sys.exit()
 						break
-					except socket.error, e:
-						print 'Socket Error. Exiting...'
-						break
+					
 
 					for sock in read_list:
 						if sock == 0: # message from stdin
-							data = sys.stdin.readline()[:-1]
+							# data = sys.stdin.readline()[:-1]
+							data = raw_input()
 							if data:
 								self.send_message(data)
 						if sock == self.s:
 							data = self.receive_message()
 							if data:
-								print 'received the message from server'
+								if 'Log Out' in data:
+									self.s.close()
+								#print 'received the message from server'
+								print data
 
 		except KeyboardInterrupt:
 			print 'KeyboardInterrupt (Ctrl+C). Stop Client.'
