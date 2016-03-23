@@ -25,10 +25,9 @@ class Server:
 		[username] (string): {
 		 	[password] (string)
 	 		[online] (boolean)
-			[block] (boolean)
-			[blocktime] (float): last block time
 		 	[activetime] (float): last active time
 		 	[logouttime] (float): last log out time
+		 	{[ip] (string): blocktime (float)} last block time for this IP address!!
 		}
 	}
 
@@ -56,11 +55,12 @@ class Server:
 			self.users[name] = {}
 			self.users[name]['password'] = password
 			self.users[name]['online'] = False
-			self.users[name]['block'] = False
-			self.users[name]['blocktime'] = None # used for block clients with invalid password
+			#self.users[name]['block'] = False
+			#self.users[name]['blocktime'] = None # used for block clients with invalid password
 			self.users[name]['activetime'] = None # used for logout inactive clients
 			self.users[name]['logouttime'] = None # used for 'last' command
 			self.users[name]['socket'] = None # used for broadcast and send
+			self.users[name]['IP'] = {} # used for block IP address of a client
 
 
 		
@@ -278,6 +278,7 @@ class Server:
 	def login(self, client_socket, client_addr):
 		try_count = 0
 		flag = 1
+		client_IP = client_addr[0]
 		while try_count < 3:
 			#print self.users
 			client_message = self.receive_message(client_socket).split(' ') 
@@ -300,11 +301,11 @@ class Server:
 					client_socket.close()
 					break
 				#check if the user is blocked
-				if self.users[client_name]['block']:
-					if time.time() - self.users[client_name]['blocktime'] > Server.BLOCK_TIME:
-						self.users[client_name]['block'] = False
+				if client_IP in self.users[client_name]['IP']:
+					if time.time() - self.users[client_name]['IP'][client_IP] > Server.BLOCK_TIME:
+						del self.users[client_name]['IP'][client_IP]
 					else:
-						check_msg3 = 'Failed. Client ' + client_name + ': is blocked. Cannot login.'
+						check_msg3 = 'Failed. Client ' + client_name + ': is blocked at '+ client_IP +'. Cannot login.'
 						self.send_message(client_socket, check_msg3)
 						#print check_msg3  
 						client_socket.close()
@@ -327,8 +328,8 @@ class Server:
 
 					if try_count == 3:  # if tried for 3 times and failed, block the user
 						check_msg4 = 'Failed. Client ' + client_name + ' tried more than 3 times.'
-						self.users[client_name]['block'] = True
-						self.users[client_name]['blocktime'] = time.time()
+						self.users[client_name]['IP'][client_IP] = time.time()
+						#self.users[client_name]['blocktime'] = time.time()
 						self.send_message(client_socket, check_msg4)
 						client_socket.close()
 						#print check_msg4
