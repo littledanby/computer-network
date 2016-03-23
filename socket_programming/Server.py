@@ -42,7 +42,8 @@ class Server:
 		
 
 		
-	
+	# at first, load the username and related password from user_pass.txt
+	# at the same time, initiating other attributes like online flag active time	
 	def load(self):
 		fileRead = open("user_pass.txt", 'r')
 		lines = fileRead.readlines()
@@ -57,14 +58,15 @@ class Server:
 			self.users[name]['online'] = False
 			#self.users[name]['block'] = False
 			#self.users[name]['blocktime'] = None # used for block clients with invalid password
-			self.users[name]['activetime'] = None # used for logout inactive clients
-			self.users[name]['logouttime'] = None # used for 'last' command
-			self.users[name]['socket'] = None # used for broadcast and send
-			self.users[name]['IP'] = {} # used for block IP address of a client
+			self.users[name]['activetime'] = None # used for logout inactive clients [user's last active time]
+			self.users[name]['logouttime'] = None # used for 'last' command [user's last log out time]
+			self.users[name]['socket'] = None # used for broadcast and send [related socket for this user]
+			self.users[name]['IP'] = {} # used for block IP address of a client [user's IP address and related blocktime]
 
 
 		
 	# create socket and listen to connections
+	# default port number is 4119
 	def create_socket(self, port):
 		try:
 			# create an AF_INET (IPv4), STREAM socket (TCP).
@@ -91,7 +93,10 @@ class Server:
 		self.s.listen(10) # 10: number of max waiting connnections when busy
 		# print 'Socket now listening'
 
-	
+	# the main part for Server client
+	# wait for 2 kind of messages 
+	# one is login part. connection request from client
+	# another is commands from different online clients
 	def server(self, port):
 		select_list = []
 		try:
@@ -142,139 +147,11 @@ class Server:
 		self.s.close()
 
 
-	def command_processing(self, client_socket):
-		client_name = self.socket_list[client_socket]
-		client_message = self.receive_message(client_socket)
-		if client_message:
-			self.users[client_name]['activetime'] = time.time()
-			if client_message == 'who':
-				self.who(client_socket)
-			elif client_message == 'logout':
-				self.logout(client_socket)
-			elif 'last' in client_message and client_message[:4] == 'last':
-				c_msg = client_message.split()
-				if len(c_msg) != 2 or (not c_msg[1].isdigit()):
-					self.send_message(client_socket, 'Invalid Command')
-				else:
-					num = int(c_msg[1])
-					self.last(client_socket, num)
-			elif 'broadcast' in client_message and client_message[:9] == 'broadcast':
-				if len(client_message) <= 10 or client_message[9] != ' ':
-					self.send_message(client_socket, 'Invalid Command')
-				else:
-					b_msg = client_message[10:]
-					self.broadcast(client_socket, b_msg)
-			elif 'send' in client_message and client_message[:5] == 'send ':
-				if client_message[5] == '(':
-					left = client_message.find('(')
-					right = client_message.find(')')
-					if right == -1:
-						self.send_message(client_socket, 'Invalid Command')
-					else:
-						send_list = client_message[left+1:right].split()
-						s_msg = client_message[right+2:]
-						if s_msg == '':
-							self.send_message(client_socket, 'Invalid Command')
-						else:
-							self.send(client_socket, send_list, s_msg)
-				else:
-					c_msg = client_message.split()
-					if len(c_msg) < 3:
-						self.send_message(client_socket, 'Invalid Command')
-					else:
-						rcv_er = client_message.split()[1]
-						s_msg = client_message[6+len(rcv_er):]
-						self.send(client_socket, [rcv_er], s_msg)
-			else:
-				self.send_message(client_socket, 'Invalid Command')
 
 
-
-	def auto_logout(self, socket):
-		name = self.socket_list[socket]
-		if time.time() - self.users[name]['activetime'] > Server.TIME_OUT:
-			self.users[name]['online'] = False
-			self.users[name]['logouttime'] = time.time()
-			self.users[name]['socket'] = None
-			respond = name + ': Auto Log Out'
-			self.send_message(socket, respond)
-			del self.socket_list[socket]
-			socket.close()
-
-
-
-	def send(self, socket, user_list, message):
-		name = self.socket_list[socket]
-		for user in user_list:
-			if user not in self.users:
-				back_msg = name + ': Failed send to '+ user +'. Invalid user object.'
-				self.send_message(socket, back_msg)
-			else:
-				if self.users[user]['online']:
-					self.send_message(self.users[user]['socket'], name+': '+message)
-
-
-	def broadcast(self, socket, message):
-		name = self.socket_list[socket]
-		for user in self.users:
-			if self.users[user]['online'] and user != name:
-				self.send_message(self.users[user]['socket'], name+': '+message)
-		print name, ': broadcast DONE.'
-
-	def last(self, socket, number):
-		name = self.socket_list[socket]
-		name_list = ''
-		curr_time = time.time()
-		last_time = curr_time - number * 60
-		for user in self.users:
-			if self.users[user]['online']:
-				name_list += user + ' '
-			elif self.users[user]['logouttime']:
-				if self.users[user]['logouttime'] > last_time:
-					name_list += user + ' '
-		self.send_message(socket, name_list)
-		print name, ": last result:", name_list
-
-
-	def who(self, socket):
-		name = self.socket_list[socket]
-		name_list = ''
-		for user in self.users:
-			if self.users[user]['online']:
-				name_list += user + ' '
-		self.send_message(socket, name_list)
-		print name, ": who result:", name_list
-
-	def logout(self, socket):
-		name = self.socket_list[socket]
-		self.users[name]['online'] = False
-		self.users[name]['logouttime'] = time.time()
-		respond = name + ' : Log Out. DONE'
-		self.send_message(socket, respond)
-		self.users[name]['socket'] = None
-		del self.socket_list[socket]
-		socket.close()
-		print respond
-
-
-	def send_message(self, socket, data):
-		try:
-			socket.sendall(data)
-		#except socket.error, e:
-		except Exception, (error, message):
-			print 'Error sending data. Exiting...'
-			sys.exit()
-
-	def receive_message(self, socket):
-		try:
-			buf = socket.recv(1024)
-		#except socket.error, e:
-		except Exception, (error, message):
-			print 'Error receiving data. Exiting...'
-			sys.exit()
-		return buf
-
-
+	# login part. deal with connection request from clients
+	# when user is not found, user logged in already or user is blocked at this IP address connection failed
+	# only when combination of username and password is correct, user login successfully
 	def login(self, client_socket, client_addr):
 		try_count = 0
 		flag = 1
@@ -341,8 +218,144 @@ class Server:
 		return 0
 
 
-						
-			
+	# deal with command from client
+	# commands include basic required commands: logout, who, last, broadcast, send(multi-users), send(private-users) 
+	# commands also include extra features: 
+	def command_processing(self, client_socket):
+		client_name = self.socket_list[client_socket]
+		client_message = self.receive_message(client_socket)
+		if client_message:
+			self.users[client_name]['activetime'] = time.time()
+			if client_message == 'who':
+				self.who(client_socket)
+			elif client_message == 'logout':
+				self.logout(client_socket)
+			elif 'last' in client_message and client_message[:4] == 'last':
+				c_msg = client_message.split()
+				if len(c_msg) != 2 or (not c_msg[1].isdigit()):
+					self.send_message(client_socket, 'Invalid Command')
+				else:
+					num = int(c_msg[1])
+					self.last(client_socket, num)
+			elif 'broadcast' in client_message and client_message[:9] == 'broadcast':
+				if len(client_message) <= 10 or client_message[9] != ' ':
+					self.send_message(client_socket, 'Invalid Command')
+				else:
+					b_msg = client_message[10:]
+					self.broadcast(client_socket, b_msg)
+			elif 'send' in client_message and client_message[:5] == 'send ':
+				if client_message[5] == '(':
+					left = client_message.find('(')
+					right = client_message.find(')')
+					if right == -1:
+						self.send_message(client_socket, 'Invalid Command')
+					else:
+						send_list = client_message[left+1:right].split()
+						s_msg = client_message[right+2:]
+						if s_msg == '':
+							self.send_message(client_socket, 'Invalid Command')
+						else:
+							self.send(client_socket, send_list, s_msg)
+				else:
+					c_msg = client_message.split()
+					if len(c_msg) < 3:
+						self.send_message(client_socket, 'Invalid Command')
+					else:
+						rcv_er = client_message.split()[1]
+						s_msg = client_message[6+len(rcv_er):]
+						self.send(client_socket, [rcv_er], s_msg)
+			else:
+				self.send_message(client_socket, 'Invalid Command')
+
+
+	# define automatically logout feature
+	def auto_logout(self, socket):
+		name = self.socket_list[socket]
+		if time.time() - self.users[name]['activetime'] > Server.TIME_OUT:
+			self.users[name]['online'] = False
+			self.users[name]['logouttime'] = time.time()
+			self.users[name]['socket'] = None
+			respond = name + ': Auto Log Out'
+			self.send_message(socket, respond)
+			del self.socket_list[socket]
+			socket.close()
+
+
+	# send message to one or list of users
+	def send(self, socket, user_list, message):
+		name = self.socket_list[socket]
+		for user in user_list:
+			if user not in self.users:
+				back_msg = name + ': Failed send to '+ user +'. Invalid user object.'
+				self.send_message(socket, back_msg)
+			else:
+				if self.users[user]['online']:
+					self.send_message(self.users[user]['socket'], name+': '+message)
+
+	# broadcast to any other online users
+	def broadcast(self, socket, message):
+		name = self.socket_list[socket]
+		for user in self.users:
+			if self.users[user]['online'] and user != name:
+				self.send_message(self.users[user]['socket'], name+': '+message)
+		print name, ': broadcast DONE.'
+
+	# seek users who are onlin during the pointed out timeslot
+	def last(self, socket, number):
+		name = self.socket_list[socket]
+		name_list = ''
+		curr_time = time.time()
+		last_time = curr_time - number * 60
+		for user in self.users:
+			if self.users[user]['online']:
+				name_list += user + ' '
+			elif self.users[user]['logouttime']:
+				if self.users[user]['logouttime'] > last_time:
+					name_list += user + ' '
+		self.send_message(socket, name_list)
+		print name, ": last result:", name_list
+
+	# seek users who are online at this time
+	def who(self, socket):
+		name = self.socket_list[socket]
+		name_list = ''
+		for user in self.users:
+			if self.users[user]['online']:
+				name_list += user + ' '
+		self.send_message(socket, name_list)
+		print name, ": who result:", name_list
+
+	# define logout features
+	def logout(self, socket):
+		name = self.socket_list[socket]
+		self.users[name]['online'] = False
+		self.users[name]['logouttime'] = time.time()
+		respond = name + ' : Log Out. DONE'
+		self.send_message(socket, respond)
+		self.users[name]['socket'] = None
+		del self.socket_list[socket]
+		socket.close()
+		print respond
+
+	# error handler for socket sending
+	def send_message(self, socket, data):
+		try:
+			socket.sendall(data)
+		#except socket.error, e:
+		except Exception, (error, message):
+			print 'Error sending data. Exiting...'
+			sys.exit()
+
+	# error handler for socketing receiving
+	def receive_message(self, socket):
+		try:
+			buf = socket.recv(1024)
+		#except socket.error, e:
+		except Exception, (error, message):
+			print 'Error receiving data. Exiting...'
+			sys.exit()
+		return buf
+
 
 
 
@@ -351,7 +364,7 @@ def main():
 	if len(sys.argv) > 1:
 		port = int(sys.argv[1])
 	else:
-		port = 4119
+		port = 4119 # if not point out a perticular port number, use the default port number 4119
 	newS = Server()
 	#newS.load()
 	#newS.create_socket(port)

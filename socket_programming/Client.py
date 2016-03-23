@@ -42,6 +42,11 @@ class Client:
 			sys.exit()
 
 
+
+	# main part for Client class
+	# wait for 2 kinds of messages
+	# one is message from sys.stdin. client command
+	# another is message received from server. 
 	def client(self, host, port):
 		try:
 			self.create_socket(host, port)
@@ -81,6 +86,10 @@ class Client:
 		self.s.close()
 
 
+	# login part.
+	# translate password using SHA1 function for security
+	# When the received message contains 'Failed', it means the login is failed (in many reasons). Then print reasons
+	# When the received message contains 'Welcome', it means user has logged in successfully.
 	def login(self):
 		print 'Login Please'
 		while 1:
@@ -105,7 +114,7 @@ class Client:
 					break
 
 
-	# send data to server
+	# error handling for socket sending
 	def send_message(self, message):
 		try:
 			self.s.sendall(message)
@@ -114,6 +123,7 @@ class Client:
 			sys.exit()
 		#print 'haha sent!'
 
+	# error handling for socket receiving
 	def receive_message(self):
 		try:
 			buff = self.s.recv(1024)
@@ -129,7 +139,7 @@ def main():
 		port = int(sys.argv[2])
 		newC = Client()
 		newC.client(host, port)
-	else:
+	else: # clarify the usage of Client.py.
 		print 'Usage: python Client.py <server_IP_address> <server_port_number>'
 
 if __name__ == '__main__':
