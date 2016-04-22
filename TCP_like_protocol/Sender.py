@@ -14,7 +14,7 @@ class Sender:
 
 	# define some info for sender to be initialized
 	def __init__(self):
-		self.s_udp = None		# UDP socket object
+		self.s_udp = None		# UDP socket object for sending data
 		self.s_ack = None		# TCP socket object for receiving ACK
 		self.log = None			# log file for sender
 		self.rcv_port = None	# receiver port number
@@ -81,11 +81,11 @@ class Sender:
 			# running on top of UDP. DGREM socket (UDP). 
 			#self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			addr_info = socket.getaddrinfo(self.rcv_IP, self.rcv_port)[0]  
-			#self.s_udp = socket.socket(addr_info[0], socket.SOCK_DGRAM)
-			self.s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			self.s_udp = socket.socket(addr_info[0], socket.SOCK_DGRAM)
+			#self.s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-
-			s_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			s_tcp = socket.socket(addr_info[0], socket.SOCK_STREAM)
+			#s_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			s_tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)		
 			
 			# resolve OSError: [Errno 48] Address already in use may occur using socket.SO_REUSEADDR flag
@@ -97,7 +97,8 @@ class Sender:
 
 		try:	
 			#self.s_udp.bind(('', self.snd_port))
-			s_tcp.bind((socket.gethostbyname(socket.gethostname()), self.snd_port))
+			#s_tcp.bind((socket.gethostbyname(socket.gethostname()), self.snd_port))
+			s_tcp.bind(('', self.snd_port))
 		except socket.error, msg:
 			print 'Binding Failed. Error code:', str(msg[0]), '; Error message:', msg[1]
 			sys.exit()
@@ -200,15 +201,6 @@ class Sender:
 									self.send_and_log(0)
 									self.ack_prev_count = 0
 
-		#self.send_fin()
-		#print 'Delivery completed successfully'
-		#print 'Total bytes sent =', self.total_byte
-		#print 'Segments sent =', self.sent
-		#print 'Segments retransmitted =', float(self.retransmitted) / float(self.sent) * 100, '%'
-		#self.s_udp.close()
-
-		#self.s_udp.sendto(self.send_data, (self.rcv_IP, self.rcv_port))
-		#self.log.write('transmitted')
 
 	# write sender info to log file
 	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin, est_rtt):

@@ -21,7 +21,6 @@ class Receiver:
 		self.window = 1 		# window size. default 1
 		self.seq_want  = 0 		# wanted sequence number
 		#self.data_seq_num = 0 	# don't need this
-		# self.sender_socket = None
 
 
 	# initialization of sender info 
@@ -51,11 +50,13 @@ class Receiver:
 			#self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			addr_info = socket.getaddrinfo(self.snd_IP, self.snd_port)[0]
 
-			#self.s_udp = socket.socket(addr_info[0], socket.SOCK_DGRAM)
-			self.s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-			self.s_udp.bind((socket.gethostbyname(socket.gethostname()), self.rcv_port))
+			self.s_udp = socket.socket(addr_info[0], socket.SOCK_DGRAM)
+			#self.s_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			#self.s_udp.bind((socket.gethostbyname(socket.gethostname()), self.rcv_port))
+			self.s_udp.bind(('', self.rcv_port))
 
-			self.s_ack = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.s_ack = socket.socket(addr_info[0], socket.SOCK_STREAM)
+			#self.s_ack = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.s_ack.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			self.s_ack.connect((self.snd_IP, self.snd_port))
 
@@ -78,7 +79,7 @@ class Receiver:
 		try:
 			while 1:
 				#read_list, write_list, error_list = select.select([0, self.s], [], [])
-				print 'wait file data'
+				#print 'wait file data'
 
 				try:
 					read_list, write_list, error_list = select.select([self.s_udp], [], [])
@@ -88,7 +89,7 @@ class Receiver:
 				except socket.error, e:
 					print 'Socket Error. Exiting...'
 					break
-				print 'wait done'
+				#print 'wait done'
 				if len(read_list) > 0:
 					rcv_data, sender_addr = self.s_udp.recvfrom(4096)
 					if len(rcv_data) > 0:
@@ -97,7 +98,7 @@ class Receiver:
 						ack_flag = rcv_header[4]
 						fin_flag = rcv_header[5]
 						checksum = rcv_header[7]
-						#print 'rcv header =',rcv_header
+						print 'rcv header =',rcv_header
 						#print data
 						check_header = struct.pack(Receiver.HEADER_FORMAT,rcv_header[0],rcv_header[1],rcv_header[2],rcv_header[3],rcv_header[4],rcv_header[5],rcv_header[6],0,rcv_header[8])
 						check_checksum = self.cal_checksum(check_header+data)
