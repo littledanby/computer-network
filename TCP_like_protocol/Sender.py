@@ -126,81 +126,79 @@ class Sender:
 		if resend_flag == 0:
 			self.win_last = self.byte_last
 
-	def send_and_resend(self):
+	def send_or_resend(self):
 		if self.timer[self.win_first/Sender.MSS]!=-1 and time.time()-self.timer[self.win_first/Sender.MSS]>self.time_out:
 			self.win_last = self.win_first + Sender.MSS - 1
 			self.byte_first = self.win_first
 			self.byte_last = min(self.win_last, len(self.send_data)-1)
 			self.send_and_log(1)
-			print 'resend -- time out'
+			#print 'resend - time out'
 		
 		else:
 			if self.win_last - self.win_first + 1 < self.window * Sender.MSS:
 				self.byte_last = min(self.byte_first+Sender.MSS-1, len(self.send_data)-1)
 				if self.byte_last > self.byte_first:
 					self.send_and_log(0)						
-					print 'send - normal'
+					#print 'send - normal'
 
+	def deal_with_ack(self):
+		#rcv_ack, receiver_addr = self.s_udp.recvfrom(4096)
+		rcv_ack = self.s_ack.recv(4096)
+		if len(rcv_ack) > 0:
+			ack_header = struct.unpack(Sender.HEADER_FORMAT, rcv_ack[:20]) 
+			seq_num = ack_header[2]
+			ack_num = ack_header[3]
+			ack_flag = ack_header[4]
+			fin_flag = ack_header[5]
+			self.write_log(ack_header[0],ack_header[1],ack_header[2],ack_header[3],ack_header[4],ack_header[5],self.est_rtt)
+			# ACK
+			if ack_flag == 1:
+				#print 'receive ACK'				
+				if ack_num > self.win_first:
+					if ack_num!=self.ack_prev:
+						self.ack_prev = ack_num
+						self.ack_prev_count = 0								
+					self.win_first = ack_num
+					# calculate RTT
+					self.cal_RTT()
+
+				elif ack_num == self.win_first:
+					# extra feature!
+					if ack_num == self.ack_prev: # duplicate ACK
+						#print 'duplicate ACK'
+						self.ack_prev_count += 1
+						if self.ack_prev_count >= 3: # retransmit ACKs appearing more than 3 times
+							self.win_last = self.win_first + Sender.MSS - 1
+							self.byte_first = self.win_first
+							self.byte_last = min(self.win_last, len(self.send_data)-1)
+							self.send_and_log(0)
+							self.retransmitted += 1
+							self.ack_prev_count = 0
 
 
 	# cut file to segments
 	# send file data to receiver
 	def send_file(self):
-		seq_num = 0
-		ack_num = 0 
-		ack_flag = 0
-		fin_flag = 0
 		#print 'loop begin'
 		while self.win_first < len(self.send_data):
 			# time out, resend packet
-			self.send_and_resend()
+			self.send_or_resend()
 
 			#print 'wait info from receiver'
 			try:
-				r_list, w_list, e_list = select.select([self.s_ack],[],[])
+				r_list, w_list, e_list = select.select([self.s_ack],[],[],0) # set 0 timeout!
 			except select.error, e:
 				print 'Select Error. Exiting...'
 				break
 			except socket.error, e:
 				print 'Socket Error. Exiting...'
 				break
+			#print 'hi ~~~'
 
 			if len(r_list) > 0:
-
-				#rcv_ack, receiver_addr = self.s_udp.recvfrom(4096)
-				rcv_ack = self.s_ack.recv(4096)
-				if len(rcv_ack) > 0:
-					ack_header = struct.unpack(Sender.HEADER_FORMAT, rcv_ack[:20]) 
-					seq_num = ack_header[2]
-					ack_num = ack_header[3]
-					ack_flag = ack_header[4]
-					fin_flag = ack_header[5]
-					self.write_log(ack_header[0],ack_header[1],ack_header[2],ack_header[3],ack_header[4],ack_header[5],self.est_rtt)
-					# ACK
-					if ack_flag == 1:
-						print 'receive ACK'
-						
-						if ack_num > self.win_first:
-							if ack_num!=self.ack_prev:
-								self.ack_prev = ack_num
-								self.ack_prev_count = 0								
-							####
-							self.win_first = ack_num
-							# calculate RTT
-							self.cal_RTT()
-
-
-						elif ack_num == self.win_first:
-							if ack_num == self.ack_prev: # duplicate ACK
-								print 'duplicate ACK'
-								self.ack_prev_count += 1
-								if self.ack_prev_count >= 3: # retransmit ACKs appearing more than 3 times
-									self.win_last = self.win_first + Sender.MSS - 1
-									self.byte_first = self.win_first
-									self.byte_last = min(self.win_last, len(self.send_data)-1)
-									self.send_and_log(0)
-									self.ack_prev_count = 0
-
+				self.deal_with_ack()
+			#print 'next'
+	
 
 	# write sender info to log file
 	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin, est_rtt):

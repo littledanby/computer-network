@@ -82,7 +82,7 @@ class Receiver:
 				#print 'wait file data'
 
 				try:
-					read_list, write_list, error_list = select.select([self.s_udp], [], [])
+					read_list, write_list, error_list = select.select([self.s_udp], [], [], 0)
 				except select.error, e:
 					print 'Select Error. Exiting...'
 					break
@@ -98,7 +98,7 @@ class Receiver:
 						ack_flag = rcv_header[4]
 						fin_flag = rcv_header[5]
 						checksum = rcv_header[7]
-						print 'rcv header =',rcv_header
+						#print 'rcv header =',rcv_header
 						#print data
 						check_header = struct.pack(Receiver.HEADER_FORMAT,rcv_header[0],rcv_header[1],rcv_header[2],rcv_header[3],rcv_header[4],rcv_header[5],rcv_header[6],0,rcv_header[8])
 						check_checksum = self.cal_checksum(check_header+data)
