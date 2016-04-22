@@ -5,6 +5,7 @@ import time
 import select
 #from threading import Thread
 import struct
+import random
 
 class Sender:
 	MSS = 576 					# value for the maximum segment size
@@ -36,8 +37,10 @@ class Sender:
 		self.byte_first = 0 	# first byte of sending
 		self.byte_last = 0 		# last byte of sending
 		self.ack_prev = 0 		# previous ack number received
-		self.ack_prev_count = 0 # count times of receiving of same previous ack number <for receiving 3 duplicate ACKs and retransmit>
+		self.ack_prev_count = 1 # count times of receiving of same previous ack number <for receiving 3 duplicate ACKs and retransmit>
 		self.rcv_count = 0 		# used to calculate RTT
+		self.sender_isn = 0 	# used for the hand shaking
+
 		
 
 	# initialization of sender info 
@@ -73,6 +76,8 @@ class Sender:
 		# set timer for every segment
 		for i in range(seg_num):
 			self.timer.append(-1)
+
+		self.sender_isn = random.randint(0,1000) # randomly choose the sender_isn
 
 	# create socket 
 	# One for sending packet(UDP), another receiving ACK(TCP) 
@@ -115,7 +120,7 @@ class Sender:
 		packet = self.build_packet(self.send_data[self.byte_first:self.byte_last+1], self.byte_first, 0, 0, 0)
 		self.s_udp.sendto(packet, (self.rcv_IP, self.rcv_port))
 		self.timer[self.byte_first/Sender.MSS] = time.time()
-		self.write_log(self.snd_port, self.rcv_port, self.byte_first, 0, 0, 0, self.est_rtt)
+		self.write_log(self.snd_port, self.rcv_port, self.byte_first, 0, 0, 0, 0, self.est_rtt)
 		self.total_byte += len(packet)
 		self.sent += 1
 		self.byte_first = self.byte_last + 1
@@ -150,14 +155,14 @@ class Sender:
 			ack_num = ack_header[3]
 			ack_flag = ack_header[4]
 			fin_flag = ack_header[5]
-			self.write_log(ack_header[0],ack_header[1],ack_header[2],ack_header[3],ack_header[4],ack_header[5],self.est_rtt)
+			self.write_log(ack_header[0],ack_header[1],ack_header[2],ack_header[3],ack_header[4],ack_header[5],0,self.est_rtt)
 			# ACK
 			if ack_flag == 1:
 				#print 'receive ACK'				
 				if ack_num > self.win_first:
 					if ack_num!=self.ack_prev:
 						self.ack_prev = ack_num
-						self.ack_prev_count = 0								
+						self.ack_prev_count = 1								
 					self.win_first = ack_num
 					# calculate RTT
 					self.cal_RTT()
@@ -167,7 +172,7 @@ class Sender:
 					if ack_num == self.ack_prev: # duplicate ACK
 						#print 'duplicate ACK'
 						self.ack_prev_count += 1
-						if self.ack_prev_count >= 3: # retransmit ACKs appearing more than 3 times
+						if self.ack_prev_count > 2: # retransmit ACKs appearing more than 3 times
 							self.win_last = self.win_first + Sender.MSS - 1
 							self.byte_first = self.win_first
 							self.byte_last = min(self.win_last, len(self.send_data)-1)
@@ -201,12 +206,12 @@ class Sender:
 	
 
 	# write sender info to log file
-	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin, est_rtt):
+	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin, syn, est_rtt):
 		log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 		log_data = ''
 		log_data += log_time+', Source: '+str(s_port)+', Destination: '+str(r_port)
 		log_data += ', Seq#: '+str(seq_num)+', ACK#: '+str(ack_num)
-		log_data += ', ACK: '+str(ack)+', FIN: '+str(fin)+', RTT: '+str(est_rtt)+'\n'
+		log_data += ', ACK: '+str(ack)+', FIN: '+str(fin)+', SYN: '+str(syn)+', RTT: '+str(est_rtt)+'\n'
 		self.log.write(log_data)
 
 
@@ -269,16 +274,16 @@ class Sender:
 		data = ''
 		fin_packet = self.build_packet(data,0,0,0,1)
 		self.s_udp.sendto(fin_packet,(self.rcv_IP, self.rcv_port))
-		self.write_log(self.snd_port, self.rcv_port, 0, 0, 0, 1, self.est_rtt)
+		self.write_log(self.snd_port, self.rcv_port, 0, 0, 0, 1, 0, self.est_rtt)
 		close_time = time.time()
 		while time.time()-close_time <= self.est_rtt*4:
-			r_list, w_list, e_list = select.select([self.s_ack],[],[])
+			r_list, w_list, e_list = select.select([self.s_ack],[],[],0)
 			if len(r_list) > 0:
 				#rcv_fin_packet, rcv_addr = self.s_udp.recvfrom(4096)
 				rcv_fin_packet = self.s_ack.recv(4096)
 				if len(rcv_fin_packet) > 0:
 					fin_header = struct.unpack(Sender.HEADER_FORMAT, rcv_fin_packet[:20])
-					self.write_log(fin_header[0],fin_header[1],fin_header[2],fin_header[3],fin_header[4],fin_header[5],self.est_rtt)
+					self.write_log(fin_header[0],fin_header[1],fin_header[2],fin_header[3],fin_header[4],fin_header[5],0,self.est_rtt)
 					ack_flag = fin_header[4]
 					fin_flag = fin_header[5]
 					if ack_flag==1 and fin_flag==1:
@@ -291,13 +296,65 @@ class Sender:
 		#self.s_udp.close()		
 
 
+	# add more flag feature to FIN flag.
+	# before: FIN_flag=1 when fin=1, FIN_flag=0 when fin=0
+	# new: FIN_flag=0 (FIN=0 SYN=0), FIN_flag=1 (FIN=1 SYN=0), FIN_flag=2 (FIN=0 SYN=1), FIN_flag=3 (FIN=1 SYN=1)
+
+	def shake_hand(self):
+		#fin_flag = 2
+		#data = ''
+		shake_packet = self.build_packet('', self.sender_isn, 0, 0, 2)
+		self.s_udp.sendto(shake_packet, (self.rcv_IP, self.rcv_port))
+		self.write_log(self.snd_port, self.rcv_port, self.sender_isn, 0, 0, 0, 1, self.est_rtt)
+		close_time = time.time()
+		flag = 0
+		while time.time()-close_time <= self.time_out:
+			r_list, w_list, e_list = select.select([self.s_ack],[],[],0)
+			if len(r_list) > 0:
+				rcv_shake_packet = self.s_ack.recv(4096)
+				if len(rcv_shake_packet) > 0:
+					shake_header = struct.unpack(Sender.HEADER_FORMAT, rcv_shake_packet[:20])
+					FIN_SYN = shake_header[5]
+					if FIN_SYN%2==0:
+						fin_flag = 0
+					else:
+						fin_flag = 1
+					if FIN_SYN<2:
+						syn_flag = 0
+					else:
+						syn_flag = 1
+					self.write_log(shake_header[0], shake_header[1], shake_header[2], shake_header[3], shake_header[4], fin_flag, syn_flag, self.est_rtt)
+					ack_num = shake_header[3]
+					seq_num = shake_header[2]
+					if  syn_flag==1 and ack_num==self.sender_isn+1:
+						flag = 1
+						break	
+					
+		if flag == 0:
+			print 'Hand shaking Failed. Exiting...'
+			self.s_udp.close()
+			self.s_ack.close()
+			sys.exit()
+
+		respond_packet = self.build_packet('',seq_num+1,0,0,0)
+		self.s_udp.sendto(respond_packet, (self.rcv_IP, self.rcv_port))
+		self.write_log(self.snd_port, self.rcv_port, seq_num+1, 0, 0, 0, 0, self.est_rtt)
+
+
 	# the main part for sender class
 	# send packets to receiver
 	def sender(self, data_file, remote_IP, remote_port, ack_port, log_file, window_size):
 		try:
 			self.init_sender(data_file, remote_IP, remote_port, ack_port, log_file, window_size)
-		
 			self.create_socket()
+		except KeyboardInterrupt:
+			print 'KeyboardInterrupt (Ctrl+C). Stop Sender.'
+			sys.exit()
+
+		try:
+			print 'begin shake hand'
+			self.shake_hand()
+			print 'Hand shaking successed. Send file next.'
 			self.send_file()
 			#print 'send_file end'
 			self.send_fin()

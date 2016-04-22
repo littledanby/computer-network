@@ -4,6 +4,7 @@ import time
 import socket
 import struct
 import select
+import random
 
 
 class Receiver:
@@ -21,6 +22,8 @@ class Receiver:
 		self.window = 1 		# window size. default 1
 		self.seq_want  = 0 		# wanted sequence number
 		#self.data_seq_num = 0 	# don't need this
+		self.receiver_isn = 0 	# used for the hand shaking
+		self.time_out = 5 		# for receiver to wait for the 3rd handshaking
 
 
 	# initialization of sender info 
@@ -40,6 +43,7 @@ class Receiver:
 			self.data = open(filename, 'w')
 		except IOError:
 			print 'Uable to open data file.'
+		self.receiver_isn = random.randint(0,1000) # randomly choose the receiver_isn
 
 
 	# create socket using sender IP and port number
@@ -103,7 +107,7 @@ class Receiver:
 						check_header = struct.pack(Receiver.HEADER_FORMAT,rcv_header[0],rcv_header[1],rcv_header[2],rcv_header[3],rcv_header[4],rcv_header[5],rcv_header[6],0,rcv_header[8])
 						check_checksum = self.cal_checksum(check_header+data)
 						#print 'calculated checksum: ',check_checksum
-						self.write_log(rcv_header[0],rcv_header[1],rcv_header[2],rcv_header[3],rcv_header[4],rcv_header[5])
+						self.write_log(rcv_header[0],rcv_header[1],rcv_header[2],rcv_header[3],rcv_header[4],rcv_header[5],0)
 						
 						if checksum == check_checksum:
 							# receive fin, to disconnect
@@ -158,12 +162,12 @@ class Receiver:
 
 	# write the log file
 	# reuse function in Sender class
-	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin):
+	def write_log(self, s_port, r_port, seq_num, ack_num, ack, fin, syn):
 		log_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 		log_data = ''
 		log_data += log_time+', Source: '+str(s_port)+', Destination: '+str(r_port)
 		log_data += ', Seq#: '+str(seq_num)+', ACK#: '+str(ack_num)
-		log_data += ', ACK: '+str(ack)+', FIN: '+str(fin)+'\n'
+		log_data += ', ACK: '+str(ack)+', FIN: '+str(fin)+', SYN: '+str(syn)+'\n'
 		self.log.write(log_data)
 
 
@@ -174,7 +178,7 @@ class Receiver:
 		fin_packet = self.build_packet(data,0,0,1,1)
 		#self.s_udp.sendto(fin_packet,(self.snd_IP, self.snd_port))
 		self.s_ack.send(fin_packet)
-		self.write_log(self.rcv_port, self.snd_port, 0, 0, 1, 1)
+		self.write_log(self.rcv_port, self.snd_port, 0, 0, 1, 1, 0)
 
 	# send ack to sender
 	def send_ack(self, ack_num):
@@ -182,7 +186,71 @@ class Receiver:
 		ack_packet = self.build_packet(data,0,ack_num,1,0)
 		#self.s_udp.sendto(ack_packet,(self.snd_IP, self.snd_port))
 		self.s_ack.send(ack_packet)
-		self.write_log(self.rcv_port, self.snd_port, 0, ack_num, 1, 0)
+		self.write_log(self.rcv_port, self.snd_port, 0, ack_num, 1, 0, 0)
+
+	def shake_hand(self):
+		try:
+			print 'waiting for shaking'
+			while 1:
+				r_list, w_list, e_list = select.select([self.s_udp],[],[],0)
+				if len(r_list) > 0:
+					rcv_shake_packet, sender_addr = self.s_udp.recvfrom(4096)
+					if len(rcv_shake_packet) > 0:
+						break
+			shake_header = struct.unpack(Receiver.HEADER_FORMAT, rcv_shake_packet[:20])
+			FIN_SYN = shake_header[5]
+			if FIN_SYN%2==0:
+				fin_flag = 0
+			else:
+				fin_flag = 1
+			if FIN_SYN<2:
+				syn_flag = 0
+			else:
+				syn_flag = 1
+			self.write_log(shake_header[0], shake_header[1], shake_header[2], shake_header[3], shake_header[4], fin_flag, syn_flag)
+			ack_num = shake_header[3]
+			seq_num = shake_header[2]
+			respond_packet = self.build_packet('', self.receiver_isn, seq_num+1, 1, 2)
+			self.s_ack.send(respond_packet)
+			self.write_log(self.rcv_port, self.snd_port, self.receiver_isn, seq_num+1, 1, 0, 1)
+			close_time = time.time()
+			flag = 0
+			#print 'rcv successful and sent'
+			while time.time()-close_time <= self.time_out:
+				read_list, write_list, error_list = select.select([self.s_udp],[],[],0)
+				if len(read_list) > 0:
+					rcv_last_packet, sender_addr = self.s_udp.recvfrom(4096)
+					if len(rcv_last_packet) > 0:
+						shake_header = struct.unpack(Receiver.HEADER_FORMAT, rcv_last_packet[:20])
+						FIN_SYN = shake_header[5]
+						if FIN_SYN%2==0:
+							fin_flag = 0
+						else:
+							fin_flag = 1
+						if FIN_SYN<2:
+							syn_flag = 0
+						else:
+							syn_flag = 1
+						self.write_log(shake_header[0], shake_header[1], shake_header[2], shake_header[3], shake_header[4], fin_flag, syn_flag)
+						seq_num = shake_header[2]
+						if syn_flag==0 and seq_num==self.receiver_isn+1:
+							#print 'right syn and seq num'
+							flag = 1
+							break
+			if flag == 0:
+				print 'Hand shaking Failed. Exiting...'
+				self.s_udp.close()
+				self.s_ack.close()
+				sys.exit()
+
+
+		except KeyboardInterrupt:
+			print 'KeyboardInterrupt (Ctrl+C). Stop Receiver.'
+			self.s_udp.close()
+			self.s_ack.close()
+			sys.exit()
+
+
 
 	# calculate checksum for packet
 	# iterate each two and sum byte value
@@ -206,6 +274,8 @@ class Receiver:
 		try:
 			self.init_receiver(filename, listen_port, sender_IP, sender_port, log_file)	
 			self.create_socket()
+			self.shake_hand()
+			print 'Hand shaking successed. Receive file next.'
 			self.receive_file()
 			self.log.close()
 			self.data.close()
