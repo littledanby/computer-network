@@ -4,6 +4,7 @@ import sys
 import time
 import select
 import json
+#import pickle
 
 
 class Router:
@@ -14,7 +15,6 @@ class Router:
 		self.s = None			# socket object
 		self.id = None			# host:port identification
 		self.table = {}			# table[destination][via]
-		#self.routing = {}		# routing table which store the min weight to destination
 		self.neighbors = []		# store neighbor id
 		self.logfile = None		# log file name for this router
 		self.timer = None		# last time sending table to neighbors
@@ -65,35 +65,64 @@ class Router:
 			min_dist = min(self.table[destination].values())
 			send_table.append([destination, min_dist])
 
-		wrap_table = json.dumps(send_table)
+		wrap_table = {'type':'update', 'table':send_table}
 		for id in self.neighbors:
 			nb_info = id.split(':')
 			nb_addr = (nb_info[0], int(nb_info[1]))
-			self.s.sendto(json.dumps(send_table), nb_addr)
+			self.s.sendto(json.dumps(wrap_table), nb_addr)
 
 	# update the routing table accoding to the received data
 	def update_table(self, nb_data, nb_addr):
-		table = json.loads(nb_data)
+		unwrap_table = json.loads(nb_data)		
 		via_id = nb_addr[0]+':'+str(nb_addr[1])
-		for each in table:
-			dest_id = each[0]
-			weight = each[1]
-			new_weight = min(self.table[via_id].values()) + weight
-			if dest_id not in self.table.keys():
-				self.table[dest_id] = {}
-				self.table[dest_id][via_id] = new_weight
-				for via in self.neighbors:
-					if via != via_id:
-						self.table[dest_id][via] = Router.INFINITY
-			else:
-				self.table[dest_id][via_id] = min(self.table[dest_id][via_id], new_weight)
+
+		if unwrap_table['type'] == 'update':
+			table = unwrap_table['table']
+			for each in table:
+				dest_id = each[0]
+				if dest_id != self.id:
+					weight = each[1]
+					new_weight = min(self.table[via_id].values()) + weight
+					if dest_id not in self.table.keys():
+						self.table[dest_id] = {}
+						self.table[dest_id][via_id] = new_weight
+						for via in self.neighbors:
+							if via != via_id:
+								self.table[dest_id][via] = Router.INFINITY
+					else:
+						self.table[dest_id][via_id] = min(self.table[dest_id][via_id], new_weight)
+
+		if unwrap_table['type'] == 'kill':
+			kill_id = unwrap_table['id']
+			print 'kill',kill_id
+			if kill_id in self.table[kill_id]:
+				tmp = self.table[kill_id][kill_id]
+
+			for dest_id in self.table:
+				if dest_id == kill_id:
+					for via_id in self.table[dest_id]:
+						self.table[dest_id][via_id] = Router.INFINITY
+				else:
+					for via_id in self.table[dest_id]:
+						if via_id == kill_id:
+							self.table[dest_id][via_id] = Router.INFINITY
+
+			if kill_id in self.table[kill_id]:
+				self.table[kill_id][kill_id] = tmp
+			print self.table
+		
 
 
 
 
 	# when ctrl C is invoked, the 
 	def send_kill_info(self):
-		return 0
+		wrap_table = {'type':'kill', 'id':self.id}
+		send = json.dumps(wrap_table)
+		for id in self.table:
+			nb_info = id.split(':')
+			nb_addr = (nb_info[0], int(nb_info[1]))
+			self.s.sendto(send, nb_addr)
 
 	# write log file
 	def write_log(self):
@@ -120,6 +149,7 @@ class Router:
 			self.create_socket(listen_port)
 			self.load(neighbor)
 			self.write_log()
+			#print self.table
 			while 1:
 				# if 5 seconds comes, send updates to neighbors
 				if time.time()-self.timer > Router.TIME_OUT:
@@ -135,7 +165,6 @@ class Router:
 
 		except KeyboardInterrupt:
 			print 'Ctrl+C detected. Close', self.id
-			#### there is something has to be done!!!!####
 			self.send_kill_info()
 			self.s.close()
 			sys.exit()
