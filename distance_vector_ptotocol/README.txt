@@ -3,22 +3,22 @@ type “python router.py listen_port interface1 interface2 …”
 use “ctrl+c” to kill a router (but do not disappear) cause later we must re-run the router by typing the same invoking sentence.
 
 example:
-python router.py 2001 192.168.0.4:2002:1 192.168.0.4:2003:5
-python router.py 2002 192.168.0.4:2001:1 192.168.0.4:2003:3
-python router.py 2003 192.168.0.4:2001:5 192.168.0.4:2002:3 192.168.0.4:2004:2
-python router.py 2004 192.168.0.4:2003:2 
+(on 1) python router.py 2001 192.168.0.4:2002:1 192.168.0.4:2003:5
+(on 2) python router.py 2002 192.168.0.4:2001:1 192.168.0.4:2003:3
+(on 3) python router.py 2003 192.168.0.4:2001:5 192.168.0.4:2002:3 192.168.0.4:2004:2
+(on 4) python router.py 2004 192.168.0.4:2003:2 
 
 1. to change the weight on link 1-2:
-first: ctrl+C at (192.168.0.4,2001)
-then: ctrl+C at (192.168.0.4,2002)
-next: python router.py 2001 192.168.0.4:2002:4 192.168.0.4:2003:5
-and python router.py 2002 192.168.0.4:2001:4 192.168.0.4:2003:3
+first: (on 1) ctrl+C at (192.168.0.4,2001)
+then: (on 2)  ctrl+C at (192.168.0.4,2002)
+next: (on 1) python router.py 2001 192.168.0.4:2002:4 192.168.0.4:2003:5
+and: (on 2) python router.py 2002 192.168.0.4:2001:4 192.168.0.4:2003:3
 In this way the weight on link on 1–2 becomes 4
 
 2. to add a new node to 1:
-first: ctrl+C at (192.168.0.4,2001)
-next: python router.py 2001 192.168.0.4:2002:1 192.168.0.4:2003:5 192.168.0.4:2005:1
-then on another window:python router.py 2005 192.168.0.4:2001:1 
+first: (on 1) ctrl+C at (192.168.0.4,2001)
+next:(on 1) python router.py 2001 192.168.0.4:2002:1 192.168.0.4:2003:5 192.168.0.4:2005:1
+then on another window: (on 5) python router.py 2005 192.168.0.4:2001:1 
 In this way a fifth router is linked to 1 and weight on link 1–5 is 1
 
 
