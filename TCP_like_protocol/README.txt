@@ -12,7 +12,7 @@ step0: run the proxy 			: ./newudpl -i <sender_addr>:* -o <receiver_addr>:<recei
 step1: run the sender file 		: python Sender.py <file_to_send> <remote_ip> 41192 <ack_port_num> <log_file> <window_size> (window_size is optional, and the default value is 1)
 step2: run the receiver file 	: python Receiver.py <receive_file_name> <listening_port> <sender_ip> <sender_port> <log_file>
 
-Example: run on the one computer(same ip)
+Example: run on the one computer(with emulator)
 step0: ./newudpl -i 129.236.212.48:* -o 129.236.212.48:20000 -v -L7 -B5 -O8
 step1: python Sender.py test.txt 129.236.212.48 41192 20001 send_log.txt 5
 step2: python Receiver.py rcv.txt 20000 129.236.212.48 20001 rcv_log.txt
@@ -25,6 +25,10 @@ step2: python Receiver.py rcv.txt 20000 129.236.212.48 20001 rcv_log.txt
 41192 is default port of the proxy
 20000: receiver listening port number
 20001: sender ack port number
+
+Example: run on the one computer(without emulator)
+step1: python Sender.py test.txt 129.236.212.48 20000 20001 send_log.txt 5
+step2: python Receiver.py rcv.txt 20000 129.236.212.48 20001 rcv_log.txt
 
 
 ## code description ##
@@ -64,7 +68,7 @@ SYN_FIN | FIN | SYN
    3    |  1  |  1
 
 
-## extra feature command ##
+## extra feature ##
 1. I add 3-way hand shaking. At first sender will send a special segment to receiver. It contains SYN flag(1) and a random choice of sender_isn in order to avoid certain security attacks. Then when receiver receives the special segment. It will send a ACK flag(1) with random choice of receiver_isn and ACK number (sender_isn+1). When sender received the propriate segment and respond by sending segment with sequence number (receiver_isn+1) and SYN flag 0. When all conditions in the 3 handshaking meets, the connection succeeds. Else the connection will close and system will exit.
 
 2. I am not sure if the duplicate ACK is requiered or not by the assignment description. (Cause in the textbook, Fast Retransmit is included in section of Reliable Data Transfer(3.5.4)) If it's not required, it is my second feature :D. When receiver receives the segement with sequence number it doesn't want, it will send back the same ACk with the previous sent one. Sender will count the ACK it receives. When sender gets 3 duplicate ACK number, It should resend from the packet with the duplicate ACK.
