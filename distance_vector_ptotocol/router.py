@@ -94,7 +94,7 @@ class Router:
 
 		if unwrap_table['type'] == 'kill':
 			kill_id = unwrap_table['id']
-			print 'kill',kill_id
+			#print 'kill',kill_id
 			if kill_id in self.table[kill_id]:
 				tmp = self.table[kill_id][kill_id]
 
@@ -109,7 +109,7 @@ class Router:
 
 			if kill_id in self.table[kill_id]:
 				self.table[kill_id][kill_id] = tmp
-			print self.table
+			#print self.table
 		
 
 
@@ -126,7 +126,10 @@ class Router:
 
 	# write log file
 	def write_log(self):
-		log = open(self.logfile, 'w')
+		try:
+			log = open(self.logfile, 'w')
+		except IOError:
+			print 'Unable to open log file.'
 		localtime = time.strftime('%H:%M:%S', time.localtime())
 		first_line = 'Node ' + self.id + ' @ '+localtime + '\n\n'
 		log.write(first_line)
