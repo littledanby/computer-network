@@ -30,6 +30,24 @@ The sending messages have two types. One is the updated table, the other is the 
 {’type’:’update’, ‘table’: the updated routing table of sender}
 
 
+### table description ###
+It looks like this way: table[destination][via] = weight
+Take the following sample topology graph as an example
+the routing table for 1 is:
+
+1 | 2 | 3 |
+———————————
+2 | 1   8 
+  |  
+3 | 4   5
+  |
+4 | 6   7
+
+This table means 1 via 2 to 3 is weight 4, via 2 to 4 is weight 6, i.e. table[‘3’][‘2’]=4 table[‘4’][‘2’]=6
+
+
+
+
 ### sample topology graph ###
 
 1—-2
